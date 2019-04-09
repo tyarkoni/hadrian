@@ -1,3 +1,5 @@
+**Note: This repository is a work-in-progress Python 3 port of the Titus PFA implementation. It's buggy and shouldn't be used for anything important or unimportant.**
+
 Hadrian: implementations of the PFA specification
 ========
 
