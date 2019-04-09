@@ -19,13 +19,23 @@
 
 import json
 import math
+import sys
 
 import avro.io
 import avro.schema
+import six
 
 import titus.errors
 import titus.util
 from titus.util import ts
+
+if sys.version_info[0] == 3:
+    from avro.schema import SchemaFromJSONData as make_avsc_object
+    from avro.schema import Parse as schema_parse
+    from titus.util import cmp
+else:
+    from avro.schema import make_avsc_object
+    from avro.schema import parse as schema_parse
 
 ######################################################### the most general types
 
@@ -82,7 +92,7 @@ def jsonToAvroType(x):
     :return: AvroType object
     """
 
-    return schemaToAvroType(avro.schema.parse(x))
+    return schemaToAvroType(schema_parse(x))
 
 def jsonNodeToAvroType(x):
     """Convert a Python-encoded Avro type into a titus.datatype.AvroType.
@@ -93,7 +103,7 @@ def jsonNodeToAvroType(x):
     :return: AvroType object
     """
 
-    return schemaToAvroType(avro.schema.parse(json.dumps(x)))
+    return schemaToAvroType(schema_parse(json.dumps(x)))
 
 def schemaToAvroType(schema):
     """Convert an Avro schema into a titus.datatype.AvroType.
@@ -183,7 +193,12 @@ class AvroType(Type):
 
     def __hash__(self):
         """Return a unique hash of the type."""
-        return hash(self.schema)
+        # Explicitly hash schema's properties because avro doesn't implement
+        # __hash__, which is required in Python 3 if __eq__ is implemented.
+        seen = []
+        for k, v in self.schema.props.items():
+            seen.extend([k, v])
+        return hash(tuple(seen))
 
     def _recordFieldsOkay(self, other, memo, checkRecord):
         for xf in self.fields:
@@ -474,8 +489,11 @@ class AvroArray(AvroContainer):
         :type items: titus.datatype.AvroType
         :param items: type of the contained objects
         """
-        self._schema = avro.schema.ArraySchema("null", avro.schema.Names())
-        self._schema.set_prop("items", items.schema)
+        if sys.version_info[0] == 3:
+            self._schema = avro.schema.ArraySchema(items.schema)
+        else:
+            self._schema = avro.schema.ArraySchema("null", avro.schema.Names())
+            self._schema.set_prop("items", items.schema)
     @property
     def items(self):
         """Type of the contained objects."""
@@ -494,8 +512,11 @@ class AvroMap(AvroContainer, AvroMapping):
         :type values: titus.datatype.AvroType
         :param values: type of the contained objects
         """
-        self._schema = avro.schema.MapSchema("null", avro.schema.Names())
-        self._schema.set_prop("values", values.schema)
+        if sys.version_info[0] == 3:
+            self._schema = avro.schema.MapSchema(values.schema)
+        else:
+            self._schema = avro.schema.MapSchema("null", avro.schema.Names())
+            self._schema.set_prop("values", values.schema)
     @property
     def values(self):
         """Type of the contained objects."""
@@ -506,8 +527,11 @@ class AvroMap(AvroContainer, AvroMapping):
     def jsonNode(self, memo):
         return {"type": "map", "values": self.values.jsonNode(memo)}
 
+
 class AvroRecord(AvroContainer, AvroMapping, AvroCompiled):
-    """Avro "record" type for inhomogeneous collections of named (and required) fields."""
+    """Avro "record" type for inhomogeneous collections of named (and required)
+    fields."""
+
     def __init__(self, fields, name=None, namespace=None):
         """Create an AvroRecord manually.
 
@@ -520,8 +544,18 @@ class AvroRecord(AvroContainer, AvroMapping, AvroCompiled):
         """
         if name is None:
             name = titus.util.uniqueRecordName()
-        self._schema = avro.schema.RecordSchema(name, namespace, [], avro.schema.Names(), "record")
-        self._schema.set_prop("fields", [x.schema for x in fields])
+
+        fields = [x.schema for x in fields]
+
+        if sys.version_info[0] == 3:
+            self._schema = avro.schema.RecordSchema(
+                name=name, namespace=namespace, fields=fields,
+                names=avro.schema.Names())
+        else:
+            self._schema = avro.schema.RecordSchema(
+                name, namespace, [], avro.schema.Names(), "record")
+            self._schema.set_prop("fields", fields)
+
     @property
     def fields(self):
         """Get the fields as a list of titus.datatype.AvroField objects."""
@@ -562,7 +596,11 @@ class AvroUnion(AvroType):
             raise titus.errors.AvroException("duplicate in union: " + ", ".join(map(ts, types)))
         if "union" in names:
             raise titus.errors.AvroException("nested union: " + ", ".join(map(ts, types)))
-        self._schema = avro.schema.UnionSchema([], avro.schema.Names())
+        # avro on Python 2 takes an extra arg for names
+        schema_args = [[]]
+        if sys.version_info[0] == 2:
+            schema_args.append(avro.schema.Names())
+        self._schema = avro.schema.UnionSchema(*schema_args)
         self._schema._schemas = [x.schema for x in types]
     @property
     def types(self):
@@ -576,12 +614,14 @@ class AvroUnion(AvroType):
 
 class AvroField(object):
     """Field of a titus.datatype.AvroRecord."""
+
     @staticmethod
     def fromSchema(schema):
         """Create a field from an avro.schema.Schema."""
         out = AvroField.__new__(AvroField)
         out._schema = schema
         return out
+
     def __init__(self, name, avroType, default=None, order=None):
         """Create an AvroField manually.
 
@@ -594,25 +634,42 @@ class AvroField(object):
         :type order: "ascending", "descending", or "ignore"
         :param order: sort order (used in Hadoop secondary sort)
         """
-        self._schema = avro.schema.Field(avroType.schema.to_json(), name, default is not None, default, order, avro.schema.Names())
+        # avro Field class takes different init args on Python 2 vs. 3
+        if sys.version_info[0] == 3:
+            self._schema = avro.schema.Field(
+                type=avroType.schema, name=name,
+                has_default=default is not None, default=default, order=order,
+                names=avro.schema.Names(), index=0)
+        else:
+            self._schema = avro.schema.Field(
+                avroType.schema.to_json(), name, default is not None, default,
+                order, avro.schema.Names())
+
     @property
     def schema(self):
         """Get the field type as an avro.schema.Schema."""
         return self._schema
+
     def __repr__(self):
         return json.dumps(self.schema.to_json())
+
     @property
     def name(self):
         """Get the field name."""
         return self.schema.name
+
     @property
     def avroType(self):
         """Get the field type as a titus.datatype.AvroType."""
         return schemaToAvroType(self.schema.type)
+
     @property
     def default(self):
         """Get the field default value."""
-        return self.schema.default
+        # On avro-python3, .default won't be set if None was passed at init,
+        # so use .get on the internal _props dictionary.
+        return self.schema._props.get('default')
+
     @property
     def order(self):
         """Get the field order."""
@@ -690,10 +747,12 @@ class AvroFilledPlaceholder(AvroPlaceholder):
 
 def parseAvroType(obj):
     """Parse an AVSC object without any memory of named types."""
-    return schemaToAvroType(avro.schema.make_avsc_object(obj, avro.schema.Names()))
+    return schemaToAvroType(make_avsc_object(obj, avro.schema.Names()))
 
 class ForwardDeclarationParser(object):
-    """Container that stores Avro types as they're collected from a PFA file, returning titus.datatype.AvroPlaceholder objects, and then resolves those types independent of the order in which they were read from the file."""
+    """Container that stores Avro types as they're collected from a PFA file,
+    returning titus.datatype.AvroPlaceholder objects, and then resolves those
+    types independent of the order in which they were read from the file."""
 
     def __init__(self):
         self.names = avro.schema.Names()
@@ -720,16 +779,19 @@ class ForwardDeclarationParser(object):
                 if jsonString not in schemae:
                     obj = json.loads(jsonString)
 
-                    if isinstance(obj, basestring) and self.names.has_name(obj, None):
+                    if isinstance(obj, six.string_types) and self.names.has_name(obj, None):
                         gotit = self.names.get_name(obj, None)
                         schemae[jsonString] = gotit
                     else:
                         oldnames = dict(self.names.names)
 
                         try:
-                            gotit = avro.schema.make_avsc_object(obj, self.names)
+                            gotit = make_avsc_object(obj, self.names)
                         except avro.schema.SchemaParseException as err:
-                            self.names.names = oldnames
+                            if sys.version_info[0] == 3:
+                                self.names._names = oldnames
+                            else:
+                                self.names.names = oldnames
                             errorMessages[jsonString] = str(err)
                         else:
                             schemae[jsonString] = gotit
@@ -755,7 +817,7 @@ class ForwardDeclarationParser(object):
             return result.avroType
 
     def getAvroType(self, description):
-        if isinstance(description, basestring):
+        if isinstance(description, six.string_types):
             if self.names.has_name(description, None):
                 return schemaToAvroType(self.names.get_name(description, None))
             elif description == "null":
@@ -907,18 +969,18 @@ def jsonDecoder(avroType, value):
         except (ValueError, TypeError):
             pass
     elif isinstance(avroType, AvroBytes):
-        if isinstance(value, basestring):
-            return bytes(value)
+        if isinstance(value, six.string_types):
+            return six.binary_type(value)
     elif isinstance(avroType, AvroFixed):
-        if isinstance(value, basestring):
-            out = bytes(value)
+        if isinstance(value, six.string_types):
+            out = six.binary_type(value)
             if len(out) == avroType.size:
                 return out
     elif isinstance(avroType, AvroString):
-        if isinstance(value, basestring):
+        if isinstance(value, six.string_types):
             return value
     elif isinstance(avroType, AvroEnum):
-        if isinstance(value, basestring) and value in avroType.symbols:
+        if isinstance(value, six.string_types) and value in avroType.symbols:
             return value
     elif isinstance(avroType, AvroArray):
         if isinstance(value, (list, tuple)):
@@ -969,23 +1031,23 @@ def jsonEncoder(avroType, value, tagged=True):
         return value
     elif isinstance(avroType, AvroBoolean) and (value is True or value is False):
         return value
-    elif isinstance(avroType, AvroInt) and isinstance(value, (int, long)) and value is not True and value is not False:
+    elif isinstance(avroType, AvroInt) and isinstance(value, int) and value is not True and value is not False:
         return value
-    elif isinstance(avroType, AvroLong) and isinstance(value, (int, long)) and value is not True and value is not False:
+    elif isinstance(avroType, AvroLong) and isinstance(value, int) and value is not True and value is not False:
         return value
-    elif isinstance(avroType, AvroFloat) and isinstance(value, (int, long, float)) and value is not True and value is not False:
+    elif isinstance(avroType, AvroFloat) and isinstance(value, (int, float)) and value is not True and value is not False:
         return float(value)
-    elif isinstance(avroType, AvroDouble) and isinstance(value, (int, long, float)) and value is not True and value is not False:
+    elif isinstance(avroType, AvroDouble) and isinstance(value, (int, float)) and value is not True and value is not False:
         return float(value)
-    elif isinstance(avroType, AvroBytes) and isinstance(value, basestring):
+    elif isinstance(avroType, AvroBytes) and isinstance(value, six.string_types):
         return value
-    elif isinstance(avroType, AvroFixed) and isinstance(value, basestring):
-        out = bytes(value)
+    elif isinstance(avroType, AvroFixed) and isinstance(value, six.string_types):
+        out = six.binary_type(value)
         if len(out) == avroType.size:
             return out
-    elif isinstance(avroType, AvroString) and isinstance(value, basestring):
+    elif isinstance(avroType, AvroString) and isinstance(value, six.string_types):
         return value
-    elif isinstance(avroType, AvroEnum) and isinstance(value, basestring) and value in avroType.symbols:
+    elif isinstance(avroType, AvroEnum) and isinstance(value, six.string_types) and value in avroType.symbols:
         return value
     elif isinstance(avroType, AvroArray) and isinstance(value, (list, tuple)):
         return [jsonEncoder(avroType.items, x, tagged) for x in value]
@@ -1047,11 +1109,11 @@ def compare(avroType, x, y):
         return 0
     elif isinstance(avroType, AvroBoolean) and (x is True or x is False) and (y is True or y is False):
         return cmp(x, y)    # agrees with Java
-    elif isinstance(avroType, AvroInt) and isinstance(x, (int, long)) and x is not True and x is not False and isinstance(y, (int, long)) and y is not True and y is not False:
+    elif isinstance(avroType, AvroInt) and isinstance(x, int) and x is not True and x is not False and isinstance(y, int) and y is not True and y is not False:
         return cmp(x, y)
-    elif isinstance(avroType, AvroLong) and isinstance(x, (int, long)) and x is not True and x is not False and isinstance(y, (int, long)) and y is not True and y is not False:
+    elif isinstance(avroType, AvroLong) and isinstance(x, int) and x is not True and x is not False and isinstance(y, int) and y is not True and y is not False:
         return cmp(x, y)
-    elif isinstance(avroType, AvroFloat) and isinstance(x, (int, long, float)) and x is not True and x is not False and isinstance(y, (int, long, float)) and y is not True and y is not False:
+    elif isinstance(avroType, AvroFloat) and isinstance(x, (int, float)) and x is not True and x is not False and isinstance(y, (int, float)) and y is not True and y is not False:
         return cmp(x, y)
         if math.isnan(x):
             if math.isnan(y):
@@ -1063,7 +1125,7 @@ def compare(avroType, x, y):
                 return -1
             else:
                 return cmp(x, y)
-    elif isinstance(avroType, AvroDouble) and isinstance(x, (int, long, float)) and x is not True and x is not False and isinstance(y, (int, long, float)) and y is not True and y is not False:
+    elif isinstance(avroType, AvroDouble) and isinstance(x, (int, float)) and x is not True and x is not False and isinstance(y, (int, float)) and y is not True and y is not False:
         if math.isnan(x):
             if math.isnan(y):
                 return 0
@@ -1074,13 +1136,13 @@ def compare(avroType, x, y):
                 return -1
             else:
                 return cmp(x, y)
-    elif isinstance(avroType, AvroBytes) and isinstance(x, basestring) and isinstance(y, basestring):
+    elif isinstance(avroType, AvroBytes) and isinstance(x, six.string_types) and isinstance(y, six.string_types):
         return cmp(x, y)
-    elif isinstance(avroType, AvroFixed) and isinstance(x, basestring) and isinstance(y, basestring):
+    elif isinstance(avroType, AvroFixed) and isinstance(x, six.string_types) and isinstance(y, six.string_types):
         return cmp(x, y)
-    elif isinstance(avroType, AvroString) and isinstance(x, basestring) and isinstance(y, basestring):
+    elif isinstance(avroType, AvroString) and isinstance(x, six.string_types) and isinstance(y, six.string_types):
         return cmp(x, y)
-    elif isinstance(avroType, AvroEnum) and isinstance(x, basestring) and x in avroType.symbols and isinstance(y, basestring) and y in avroType.symbols:
+    elif isinstance(avroType, AvroEnum) and isinstance(x, six.string_types) and x in avroType.symbols and isinstance(y, six.string_types) and y in avroType.symbols:
         comparison = avroType.symbols.index(x) - avroType.symbols.index(y)
         if comparison < 0:
             return -1
@@ -1184,6 +1246,9 @@ except ImportError:
 def checkData(data, avroType):
     """Return ``True`` if ``data`` satisfies ``avroType`` and can be used in PFAEngine.action."""
 
+    # define type tuples that work on both Python 2 and Python 3
+    STRING_OR_BYTES = tuple(list(six.string_types) + [bytes])
+
     if isinstance(avroType, AvroNull):
         if data == "null":
             data = None
@@ -1205,40 +1270,40 @@ def checkData(data, avroType):
             raise TypeError("expecting {0}, found {1}".format(ts(avroType), data))
 
     elif isinstance(avroType, AvroInt):
-        if isinstance(data, basestring):
+        if isinstance(data, STRING_OR_BYTES):
             try:
                 data = int(data)
             except ValueError:
                 raise TypeError("expecting {0}, found {1}".format(ts(avroType), data))
         elif isinstance(data, integerTypes):
             data = int(data)
-        elif isinstance(data, (int, long)):
+        elif isinstance(data, int):
             return data
         else:
             raise TypeError("expecting {0}, found {1}".format(ts(avroType), data))
 
     elif isinstance(avroType, AvroLong):
-        if isinstance(data, basestring):
+        if isinstance(data, STRING_OR_BYTES):
             try:
                 data = int(data)
             except ValueError:
                 raise TypeError("expecting {0}, found {1}".format(ts(avroType), data))
         elif isinstance(data, integerTypes):
             data = int(data)
-        elif isinstance(data, (int, long)):
+        elif isinstance(data, int):
             return data
         else:
             raise TypeError("expecting {0}, found {1}".format(ts(avroType), data))
 
     elif isinstance(avroType, AvroFloat):
-        if isinstance(data, basestring):
+        if isinstance(data, STRING_OR_BYTES):
             try:
                 data = float(data)
             except ValueError:
                 raise TypeError("expecting {0}, found {1}".format(ts(avroType), data))
         elif isinstance(data, floatTypes):
             data = float(data)
-        elif isinstance(data, (int, long)):
+        elif isinstance(data, int):
             data = float(data)
         elif isinstance(data, float):
             return data
@@ -1246,14 +1311,14 @@ def checkData(data, avroType):
             raise TypeError("expecting {0}, found {1}".format(ts(avroType), data))
 
     elif isinstance(avroType, AvroDouble):
-        if isinstance(data, basestring):
+        if isinstance(data, STRING_OR_BYTES):
             try:
                 data = float(data)
             except ValueError:
                 raise TypeError("expecting {0}, found {1}".format(ts(avroType), data))
         elif isinstance(data, floatTypes):
             return float(data)
-        elif isinstance(data, (int, long)):
+        elif isinstance(data, int):
             return float(data)
         elif isinstance(data, float):
             return data
@@ -1261,17 +1326,17 @@ def checkData(data, avroType):
             raise TypeError("expecting {0}, found {1}".format(ts(avroType), data))
 
     elif isinstance(avroType, (AvroBytes, AvroFixed)):
-        if isinstance(data, unicode):
-            return data.encode("utf-8", "replace")
-        elif isinstance(data, str):
+        if isinstance(data, six.binary_type):
             return data
+        elif isinstance(data, six.string_types):
+            return data.encode("utf-8", "replace")
         else:
             raise TypeError("expecting {0}, found {1}".format(ts(avroType), data))
 
     elif isinstance(avroType, (AvroString, AvroEnum)):
-        if isinstance(data, str):
+        if isinstance(data, six.binary_type):
             return data.decode("utf-8", "replace")
-        elif isinstance(data, unicode):
+        elif isinstance(data, STRING_OR_BYTES):
             return data
         else:
             raise TypeError("expecting {0}, found {1}".format(ts(avroType), data))
@@ -1287,9 +1352,9 @@ def checkData(data, avroType):
             newData = {}
             for key in data:
                 value = checkData(data[key], avroType.values)
-                if isinstance(key, str):
+                if isinstance(key, six.binary_type):
                     newData[key.decode("utf-8", "replace")] = value
-                elif isinstance(key, unicode):
+                elif isinstance(key, STRING_OR_BYTES):
                     newData[key] = value
                 else:
                     raise TypeError("expecting {0}, found key {1}".format(ts(avroType), key))

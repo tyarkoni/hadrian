@@ -23,6 +23,8 @@ import urllib
 import io
 import re
 
+import six
+from six.moves import range
 from avro.datafile import DataFileReader
 from avro.io import DatumReader
 
@@ -101,9 +103,9 @@ def jsonToAst(jsonInput):
     :return: a PFA configuration that has passed syntax but not semantics checks
     """
 
-    if isinstance(jsonInput, file):
+    if isinstance(jsonInput, io.IOBase):
         jsonInput = jsonInput.read()
-    if isinstance(jsonInput, basestring):
+    if isinstance(jsonInput, six.string_types):
         jsonInput = json.loads(jsonInput)
     
     avroTypeBuilder = AvroTypeBuilder()
@@ -125,7 +127,7 @@ def yamlToAst(yamlInput):
     def read(parser):
         try:
             while True:
-                event = parser.next()
+                event = next(parser)
         
                 if isinstance(event, yaml.ScalarEvent):
                     if not event.implicit[0]:
@@ -172,7 +174,7 @@ def yamlToAst(yamlInput):
 
                         elif isinstance(key, yaml.events.Event):
                             raise PFASyntaxException("malformed YAML", "line {0}".format(event.end_mark.line))
-                        elif not isinstance(key, basestring):
+                        elif not isinstance(key, six.string_types):
                             raise PFASyntaxException("YAML keys must be strings, not {0}".format(key), "line {0}".format(event.end_mark.line))
 
                         value = read(parser)
@@ -201,9 +203,9 @@ def jsonToExpressionAst(jsonInput, where=""):
     :rtype: titus.pfaast.Expression
     :return: parsed expression as a single abstract syntax tree
     """
-    if isinstance(jsonInput, file):
+    if isinstance(jsonInput, io.IOBase):
         jsonInput = jsonInput.read()
-    if isinstance(jsonInput, basestring):
+    if isinstance(jsonInput, six.string_types):
         jsonInput = json.loads(jsonInput)
 
     avroTypeBuilder = AvroTypeBuilder()
@@ -222,9 +224,9 @@ def jsonToExpressionsAst(jsonInput, where=""):
     :rtype: list of titus.pfaast.Expression
     :return: parsed expressions as a list of abstract syntax trees
     """
-    if isinstance(jsonInput, file):
+    if isinstance(jsonInput, io.IOBase):
         jsonInput = jsonInput.read()
-    if isinstance(jsonInput, basestring):
+    if isinstance(jsonInput, six.string_types):
         jsonInput = json.loads(jsonInput)
 
     avroTypeBuilder = AvroTypeBuilder()
@@ -243,9 +245,9 @@ def jsonToFcnDef(jsonInput, where=""):
     :rtype: titus.pfaast.FcnDef
     :return: parsed function as a single abstract syntax tree
     """
-    if isinstance(jsonInput, file):
+    if isinstance(jsonInput, io.IOBase):
         jsonInput = jsonInput.read()
-    if isinstance(jsonInput, basestring):
+    if isinstance(jsonInput, six.string_types):
         jsonInput = json.loads(jsonInput)
 
     avroTypeBuilder = AvroTypeBuilder()
@@ -264,9 +266,9 @@ def jsonToFcnDefs(jsonInput, where=""):
     :rtype: dict of titus.pfaast.FcnDef
     :return: parsed functions as abstract syntax trees
     """
-    if isinstance(jsonInput, file):
+    if isinstance(jsonInput, io.IOBase):
         jsonInput = jsonInput.read()
-    if isinstance(jsonInput, basestring):
+    if isinstance(jsonInput, six.string_types):
         jsonInput = json.loads(jsonInput)
 
     avroTypeBuilder = AvroTypeBuilder()
@@ -397,7 +399,7 @@ def _readBoolean(data, dot):
         raise PFASyntaxException("expected boolean, not " + _trunc(repr(data)), dot)
 
 def _readInt(data, dot):
-    if isinstance(data, (int, long)):
+    if isinstance(data, int):
         if -2147483648 <= data <= 2147483647:
             return data
         else:
@@ -406,7 +408,7 @@ def _readInt(data, dot):
         raise PFASyntaxException("expected int, not " + _trunc(repr(data)), dot)
 
 def _readLong(data, dot):
-    if isinstance(data, (int, long)):
+    if isinstance(data, int):
         if -9223372036854775808 <= data <= 9223372036854775807:
             return data
         else:
@@ -415,13 +417,13 @@ def _readLong(data, dot):
         raise PFASyntaxException("expected long, not " + _trunc(repr(data)), dot)
 
 def _readFloat(data, dot):
-    if isinstance(data, (int, long, float)):
+    if isinstance(data, (int, float)):
         return float(data)
     else:
         raise PFASyntaxException("expected float, not " + _trunc(repr(data)), dot)
 
 def _readDouble(data, dot):
-    if isinstance(data, (int, long, float)):
+    if isinstance(data, (int, float)):
         return float(data)
     else:
         raise PFASyntaxException("expected double, not " + _trunc(repr(data)), dot)
@@ -481,19 +483,19 @@ def _readStringMap(data, dot):
         raise PFASyntaxException("expected map of strings, not " + _trunc(repr(data)), dot)
 
 def _readString(data, dot):
-    if isinstance(data, basestring):
+    if isinstance(data, six.string_types):
         return data
     else:
         raise PFASyntaxException("expected string, not " + _trunc(repr(data)), dot)
 
 def _readStringOrInt(data, dot):
-    if isinstance(data, (basestring, int, long)):
+    if isinstance(data, (six.string_types, int, long)):
         return data
     else:
         raise PFASyntaxException("expected string or int, not " + _trunc(repr(data)), dot)
 
 def _readBase64(data, dot):
-    if isinstance(data, basestring):
+    if isinstance(data, six.string_types):
         return base64.b64decode(data)
     else:
         raise PFASyntaxException("expected base64 data, not " + _trunc(repr(data)), dot)
@@ -567,7 +569,7 @@ def _readArgument(data, dot, avroTypeBuilder):
         return LiteralNull(dot)
     elif isinstance(data, bool):
         return LiteralBoolean(data, dot)
-    elif isinstance(data, (int, long)):
+    elif isinstance(data, int):
         if -2147483648 <= data <= 2147483647:
             return LiteralInt(data, dot)
         elif -9223372036854775808 <= data <= 9223372036854775807:
@@ -576,14 +578,14 @@ def _readArgument(data, dot, avroTypeBuilder):
             raise PFASyntaxException("integer out of range: " + str(data), dot)
     elif isinstance(data, float):
         return LiteralDouble(data, dot)
-    elif isinstance(data, basestring):
+    elif isinstance(data, six.string_types):
         if "." in data:
             words = data.split(".")
             ref = words[0]
             rest = words[1:]
             if not validSymbolName(ref):
                 raise PFASyntaxException("\"{0}\" is not a valid symbol name".format(ref), dot)
-            for i in xrange(len(rest)):
+            for i in range(len(rest)):
                 try:
                     asint = int(rest[i])
                 except ValueError:
@@ -597,7 +599,7 @@ def _readArgument(data, dot, avroTypeBuilder):
             raise PFASyntaxException("\"{0}\" is not a valid symbol name".format(data), dot)
 
     elif isinstance(data, (list, tuple)):
-        if len(data) == 1 and isinstance(data[0], basestring):
+        if len(data) == 1 and isinstance(data[0], six.string_types):
             return LiteralString(data[0], dot)
         else:
             raise PFASyntaxException("expecting expression, which may be [\"string\"], but no other array can be used as an expression", dot)
@@ -896,7 +898,7 @@ def _readCell(data, dot, avroTypeBuilder):
         else:
             if _source == "avro":
                 url = json.loads(_init)
-                if not isinstance(url, basestring):
+                if not isinstance(url, six.string_types):
                     raise PFASyntaxException("source: avro requires init to be a string", pos(dot, at))
                 def getit(avroType):
                     reader = DataFileReader(urllib.urlopen(url), DatumReader())
@@ -905,7 +907,7 @@ def _readCell(data, dot, avroTypeBuilder):
 
             elif _source == "json":
                 url = json.loads(_init)
-                if not isinstance(url, basestring):
+                if not isinstance(url, six.string_types):
                     raise PFASyntaxException("source: json requires init to be a string", pos(dot, at))
                 def getit(avroType):
                     if re.match("^[a-zA-Z][a-zA-Z0-9\+\-\.]*://", url) is not None:
@@ -959,7 +961,7 @@ def _readPool(data, dot, avroTypeBuilder):
         else:
             if _source == "avro":
                 url = json.loads(_init)
-                if not isinstance(url, basestring):
+                if not isinstance(url, six.string_types):
                     raise PFASyntaxException("source: avro requires init to be a string", pos(dot, at))
                 def getit(avroType):
                     reader = DataFileReader(urllib.urlopen(url), DatumReader())
@@ -968,7 +970,7 @@ def _readPool(data, dot, avroTypeBuilder):
 
             elif _source == "json":
                 url = json.loads(_init)
-                if not isinstance(url, basestring):
+                if not isinstance(url, six.string_types):
                     raise PFASyntaxException("source: json requires init to be a string", pos(dot, at))
                 def getit(avroType):
                     if re.match("^[a-zA-Z][a-zA-Z0-9\+\-\.]*://", url) is not None:

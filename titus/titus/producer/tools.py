@@ -23,12 +23,15 @@ import json
 import re
 import sys
 
+import six
+from six.moves import range
+
 ############################################## quick access functions
 
 def splitIndex(index):
     """Normalize a casual index like "one, two, 3,four" to canonical form like ["one", "two", 3, "four"]."""
     out = [x.strip() for x in index.split(",")]
-    for i in xrange(len(out)):
+    for i in range(len(out)):
         try:
             out[i] = int(out[i])
         except ValueError:
@@ -37,7 +40,7 @@ def splitIndex(index):
 
 def get(expr, index):
     """Get a subexpression from the root expr and index."""
-    if isinstance(index, basestring):
+    if isinstance(index, six.string_types):
         index = splitIndex(index)
     out = expr
     for i in index:
@@ -46,7 +49,7 @@ def get(expr, index):
 
 def assign(expr, index, to):
     """Destructively (in-place) replace a subexpression at a given index with another expression."""
-    if isinstance(index, basestring):
+    if isinstance(index, six.string_types):
         index = splitIndex(index)
     out = expr
     for i in index[:-1]:
@@ -73,7 +76,7 @@ def assignedAt(pattern, expr, to):
 
 def remove(expr, index):
     """Destructively (in-place) remove a subexpression at a given index."""
-    if isinstance(index, basestring):
+    if isinstance(index, six.string_types):
         index = splitIndex(index)
     out = expr
     for i in index[:-1]:
@@ -138,7 +141,7 @@ def getmatch(pattern, haystack):
                 return None
         return out
 
-    elif isinstance(pattern, (basestring, long, int, float)):
+    elif isinstance(pattern, (six.string_types, int, float)):
         if pattern == haystack:
             return Match(haystack, haystack)
         else:
@@ -286,7 +289,7 @@ class Approx(Matcher):
     def __repr__(self):
         return "Approx(" + repr(self.central) + ", " + repr(self.error) + ")"
     def getmatch(self, haystack):
-        if not isinstance(haystack, (long, int, float)) or abs(haystack - self.central) > self.error:
+        if not isinstance(haystack, (int, float)) or abs(haystack - self.central) > self.error:
             return None
         else:
             return Match(haystack, haystack)
@@ -298,7 +301,7 @@ class LT(Matcher):
     def __repr__(self):
         return "LT(" + repr(self.value) + ")"
     def getmatch(self, haystack):
-        if not isinstance(haystack, (long, int, float)) or haystack >= self.value:
+        if not isinstance(haystack, (int, float)) or haystack >= self.value:
             return None
         else:
             return Match(haystack, haystack)
@@ -310,7 +313,7 @@ class LE(Matcher):
     def __repr__(self):
         return "LE(" + repr(self.value) + ")"
     def getmatch(self, haystack):
-        if not isinstance(haystack, (long, int, float)) or haystack > self.value:
+        if not isinstance(haystack, (int, float)) or haystack > self.value:
             return None
         else:
             return Match(haystack, haystack)
@@ -322,7 +325,7 @@ class GT(Matcher):
     def __repr__(self):
         return "GT(" + repr(self.value) + ")"
     def getmatch(self, haystack):
-        if not isinstance(haystack, (long, int, float)) or haystack <= self.value:
+        if not isinstance(haystack, (int, float)) or haystack <= self.value:
             return None
         else:
             return Match(haystack, haystack)
@@ -334,7 +337,7 @@ class GE(Matcher):
     def __repr__(self):
         return "GE(" + repr(self.value) + ")"
     def getmatch(self, haystack):
-        if not isinstance(haystack, (long, int, float)) or haystack < self.value:
+        if not isinstance(haystack, (int, float)) or haystack < self.value:
             return None
         else:
             return Match(haystack, haystack)
@@ -351,7 +354,7 @@ class RegEx(Matcher):
     def __repr__(self):
         return "RegEx(" + repr(self.pattern) + ", " + repr(self.to) + ", " + repr(self.flags) + ")"
     def getmatch(self, haystack):
-        if not isinstance(haystack, basestring):
+        if not isinstance(haystack, six.string_types):
             return None
         flags = 0
         if self.flags is not None:

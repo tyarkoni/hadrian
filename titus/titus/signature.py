@@ -69,22 +69,42 @@ class PFAVersion(object):
         :type release: non-negative integer
         :param release: release version number (bug-fixes)
         """
-        if major < 0 or minor < 0 or release < 0 or not isinstance(major, (int, long)) or not isinstance(minor, (int, long)) or not isinstance(release, (int, long)):
+        if major < 0 or minor < 0 or release < 0 or not isinstance(major, int) or not isinstance(minor, int) or not isinstance(release, int):
             raise ValueError("PFA version major, minor, and release numbers must be non-negative integers")
         self.major = major
         self.minor = minor
         self.release = release
+
     def __repr__(self):
         """Represent a PFAVersion as a dotted triple on the screen."""
         return "{0}.{1}.{2}".format(self.major, self.minor, self.release)
-    def __cmp__(self, other):
-        """Strict ordering on PFAVersions: check major number first, then minor, then release."""
-        if self.major == other.major and self.minor == other.minor:
-            return cmp(self.release, other.release)
+    
+    def __eq__(self, other):
+        return self.major == other.major and self.minor == other.minor and \
+               self.release == other.release
+    
+    def __ne__(self, other):
+        return not self == other
+    
+    def __gt__(self, other):
+        if self.major > other.major:
+            return True
         elif self.major == other.major:
-            return cmp(self.minor, other.minor)
-        else:
-            return cmp(self.major, other.major)
+            if self.minor > other.minor:
+               return True
+            elif self.minor == other.minor and self.release > other.release:
+                return True
+        return False
+
+    def __lt__(self, other):
+        return not (self > other or self == other)
+
+    def __ge__(self, other):
+        return not self < other
+    
+    def __le__(self, other):
+        return not self > other
+
     @staticmethod
     def fromString(x):
         """Create a ``PFAVersion`` from a dotted string.
@@ -338,7 +358,7 @@ class Sig(Signature):
 
     def __repr__(self):
         alreadyLabeled = set()
-        return "(" + ", ".join(p.keys()[0] + ": " + toText(p.values()[0], alreadyLabeled) for p in self.params) + " -> " + toText(self.ret, alreadyLabeled) + ")"
+        return "(" + ", ".join(list(p.keys())[0] + ": " + toText(list(p.values())[0], alreadyLabeled) for p in self.params) + " -> " + toText(self.ret, alreadyLabeled) + ")"
 
     def accepts(self, args, version):
         """Determine if this signature accepts the given arguments for a given PFA version number.
@@ -353,10 +373,10 @@ class Sig(Signature):
 
         if self.lifespan.current(version) or self.lifespan.deprecated(version):
             labelData = {}
-            if len(self.params) == len(args) and all(self.check(p.values()[0], a, labelData, False, False) for p, a in zip(self.params, args)):
+            if len(self.params) == len(args) and all(self.check(list(p.values())[0], a, labelData, False, False) for p, a in zip(self.params, args)):
                 try:
                     assignments = dict((l, ld.determineAssignment()) for l, ld in labelData.items())
-                    assignedParams = [self.assign(p.values()[0], a, assignments) for p, a in zip(self.params, args)]
+                    assignedParams = [self.assign(list(p.values())[0], a, assignments) for p, a in zip(self.params, args)]
                     assignedRet = self.assignRet(self.ret, assignments)
                     return (self, assignedParams, assignedRet)
                 except IncompatibleTypes:
@@ -438,7 +458,7 @@ class Sig(Signature):
             while not found and not atypesPermutations_isEmpty:
                 available = OrderedDict((i, x) for i, x in enumerate(pat.types))
                 try:
-                    nextPermutation = atypesPermutations.next()
+                    nextPermutation = next(atypesPermutations)
                 except StopIteration:
                     atypesPermutations_isEmpty = True
                 else:

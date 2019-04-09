@@ -19,6 +19,7 @@
 
 import json
 import unittest
+import six
 
 from titus.reader import yamlToAst
 from titus.genpy import PFAEngine
@@ -473,7 +474,7 @@ output: int
 action: 12
 ''')
         self.assertEqual(engine.action(None), 12)
-        self.assertTrue(isinstance(engine.action(None), (int, long)))
+        self.assertTrue(isinstance(engine.action(None), int))
 
     def testLiteralLong(self):
         engine, = PFAEngine.fromYaml('''
@@ -482,7 +483,7 @@ output: long
 action: {long: 12}
 ''')
         self.assertEqual(engine.action(None), 12)
-        self.assertTrue(isinstance(engine.action(None), (int, long)))
+        self.assertTrue(isinstance(engine.action(None), int))
 
     def testLiteralFloat(self):
         engine, = PFAEngine.fromYaml('''
@@ -509,7 +510,7 @@ output: string
 action: [["hello world"]]
 ''')
         self.assertEqual(engine.action(None), "hello world")
-        self.assertTrue(isinstance(engine.action(None), basestring))
+        self.assertTrue(isinstance(engine.action(None), six.string_types))
 
         engine, = PFAEngine.fromYaml('''
 input: "null"
@@ -517,7 +518,7 @@ output: string
 action: {string: "hello world"}
 ''')
         self.assertEqual(engine.action(None), "hello world")
-        self.assertTrue(isinstance(engine.action(None), basestring))
+        self.assertTrue(isinstance(engine.action(None), six.string_types))
 
     def testLiteralBase64(self):
         engine, = PFAEngine.fromYaml('''
@@ -526,7 +527,7 @@ output: bytes
 action: {base64: "aGVsbG8="}
 ''')
         self.assertEqual(engine.action(None), "hello")
-        self.assertTrue(isinstance(engine.action(None), basestring))
+        self.assertTrue(isinstance(engine.action(None), six.string_types))
 
     def testComplexLiterals(self):
         engine, = PFAEngine.fromYaml('''

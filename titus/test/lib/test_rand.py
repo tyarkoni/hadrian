@@ -22,6 +22,8 @@ import unittest
 import math
 import struct
 
+from six.moves import range
+
 from titus.genpy import PFAEngine
 from titus.errors import *
 
@@ -146,7 +148,7 @@ output: int
 randseed: 12345
 action: {rand.histogram: {value: [3.3, 2.2, 5.5, 0.0, 1.1, 8.8], type: {type: array, items: double}}}
 ''')
-        results = [engine.action(None) for i in xrange(0, 10000)]
+        results = [engine.action(None) for i in range(0, 10000)]
         self.assertAlmostEqual(results.count(0) / 10000.0, 0.15789473684210525, places=2)
         self.assertAlmostEqual(results.count(1) / 10000.0, 0.10526315789473686, places=2)
         self.assertAlmostEqual(results.count(2) / 10000.0, 0.26315789473684215, places=2)
@@ -179,7 +181,7 @@ cells:
       - {label: F, prob: 8.8}
 action: {rand.histogram: {cell: hist}}
 ''')
-        results = [engine.action(None) for i in xrange(0, 10000)]
+        results = [engine.action(None) for i in range(0, 10000)]
         self.assertAlmostEqual(sum(1 for x in results if x["label"] == "A") / 10000.0, 0.15789473684210525, places=2)
         self.assertAlmostEqual(sum(1 for x in results if x["label"] == "B") / 10000.0, 0.10526315789473686, places=2)
         self.assertAlmostEqual(sum(1 for x in results if x["label"] == "C") / 10000.0, 0.26315789473684215, places=2)
@@ -267,7 +269,7 @@ input: "null"
 output: string
 action: {s.substr: [{rand.uuid4: []}, 14, 15]}
 ''')
-        for i in xrange(1000):
+        for i in range(1000):
             self.assertEqual(engine2.action(None), "4")
 
         engine3, = PFAEngine.fromYaml('''
@@ -275,7 +277,7 @@ input: "null"
 output: string
 action: {s.substr: [{rand.uuid4: []}, 19, 20]}
 ''')
-        for i in xrange(1000):
+        for i in range(1000):
             self.assertEqual(engine3.action(None), "8")
 
     def testGaussian(self):

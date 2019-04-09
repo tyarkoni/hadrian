@@ -27,6 +27,7 @@ import struct
 
 from avro.datafile import DataFileReader, DataFileWriter
 from avro.io import DatumReader, DatumWriter
+from six.moves import range
 
 from titus.errors import *
 import titus.pfaast
@@ -314,7 +315,7 @@ class GeneratePython(titus.pfaast.Task):
             return "self.f[" + repr(context.fcn.name) + "]"
 
         elif isinstance(context, FcnRefFill.Context):
-            reducedArgs = ["\"$" + str(x) + "\"" for x in xrange(len(context.fcnType.params))]
+            reducedArgs = ["\"$" + str(x) + "\"" for x in range(len(context.fcnType.params))]
             j = 0
             args = []
             for name in context.originalParamNames:
@@ -1289,9 +1290,9 @@ def genericLog(message, namespace):
     """
 
     if namespace is None:
-        print " ".join(map(json.dumps, message))
+        print(" ".join(map(json.dumps, message)))
     else:
-        print namespace + ": " + " ".join(map(json.dumps, message))
+        print(namespace + ": " + " ".join(map(json.dumps, message)))
     
 class FakeEmitForExecution(titus.fcn.Fcn):
     """Placeholder so that the ``emit`` function looks like any other function to PFA."""
@@ -1446,7 +1447,7 @@ class PFAEngine(object):
 
         context, code = engineConfig.walk(GeneratePython.makeTask(style), titus.pfaast.SymbolTable.blank(), functionTable, engineOptions, pfaVersion)
         if debug:
-            print code
+            print(code)
 
         sandbox = {# Scoring engine architecture
                    "PFAEngine": PFAEngine,
@@ -1500,7 +1501,7 @@ class PFAEngine(object):
                 sharedState.pools[poolName] = Pool(value, poolConfig.shared, poolConfig.rollback, poolConfig.source)
 
         out = []
-        for index in xrange(multiplicity):
+        for index in range(multiplicity):
             cells = dict(sharedState.cells)
             pools = dict(sharedState.pools)
 
@@ -1523,7 +1524,7 @@ class PFAEngine(object):
                 rand = random.Random()
             else:
                 rand = random.Random(engineConfig.randseed)
-                for skip in xrange(index):
+                for skip in range(index):
                     rand = random.Random(rand.randint(0, 2**31 - 1))
 
             engine = cls(cells, pools, engineConfig, engineOptions, genericLog, genericEmit, zero, index, rand)
@@ -1769,7 +1770,7 @@ class FastAvroCorrector(object):
         return self
 
     def next(self):
-        return self.correctFastAvro(self.reader.next(), self.avroType)
+        return self.correctFastAvro(next(self.reader), self.avroType)
 
     def correctFastAvro(self, x, avroType):
         if isinstance(avroType, (titus.datatype.AvroString, titus.datatype.AvroEnum)) and isinstance(x, str):
@@ -1780,7 +1781,7 @@ class FastAvroCorrector(object):
 
         elif isinstance(avroType, titus.datatype.AvroArray):
             itemType = avroType.items
-            for i in xrange(len(x)):
+            for i in range(len(x)):
                 x[i] = self.correctFastAvro(x[i], itemType)
 
         elif isinstance(avroType, titus.datatype.AvroMap):
